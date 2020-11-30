@@ -11,5 +11,5 @@ Software Tools: Vivado 2018 + SDNet v2018.2
 
 Hardware: NetFPGA SUME
 
-## 3. 
-
+## 3. Topology test
+<img src="images/topo-srv6.png" style="zoom:50%;" />
