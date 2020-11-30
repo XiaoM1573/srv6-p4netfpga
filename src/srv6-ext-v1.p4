@@ -20,7 +20,7 @@ const bit<8> PROTO_SRV6 = 43;
 const bit<8> PROTO_ICMPV6 = 58;
 
 // According to your own needs, customize the maximum depth of segment list
-#define MAX_HOPS 15
+#define MAX_HOPS 6
 
 /*******************************************************************/
 /**************************** Header *******************************/
@@ -117,14 +117,17 @@ struct Parsed_packet {
     ICMPv6_h icmpv6;
 }
 
-// 发送给cpu，总共256位
+// 发送给cpu，总共256位，推荐用于控制信号，用户可自定义
 struct digest_data_t {
-    bit<256>  unused;
+    bit<254>  unused;
+    bit unknown_eth_dst;
+    bit unknown_ip_dst;
 }
 
 // 保存用户定义的一些变量
 struct user_metadata_t {
     bit<8> segment_list_cur; // 主要用于parse_srv6_list阶段
+    IPv6Addr_t next_srv6_sid; // 用于记录下一跳sid
 }
 
 
@@ -141,7 +144,11 @@ parser TopParser(packet_in packet,
     state start {
         // user_metadata 和 digest_data 初始化, 否则会有警告信息
         digest_data.unused = 0;
+        digest_data.unknown_eth_dst = 0;
+        digest_data.unknown_ip_dst = 0;
+
         user_metadata.segment_list_cur = 0;
+        user_metadata.next_srv6_sid = 0;
         transition parse_ethernet;
     }
 
@@ -202,11 +209,23 @@ parser TopParser(packet_in packet,
 
     state parse_srv6_list {
         packet.extract(hdr.srv6_list.next);
-        // bool next_segment = (bit<32>)hdr.srv6_list.lastIndex == (bit<32>)hdr.srv6.segmentLeft - 1; // lastIndex无法在p4c-sdnet编译环境下通过
-        bool is_last_segment = user_metadata.segment_list_cur == hdr.srv6.lastEntry; // 作用和lastIndex一样，指向栈顶（最后一个元素）
-        // TODO, 这里并没有判断segment list的长度是否超过我们设置的阈值MAX_HOPS，现在考虑的场景比较简单，后面有待完善
-        user_metadata.segment_list_cur = user_metadata.segment_list_cur + 1;
-        // 循环读取srv6 segment list区域
+        user_metadata.segment_list_cur = user_metadata.segment_list_cur + 1; // 相当于nextIndex，主要用来解决lastIndex在p4c-sdnet编译环境下无法通过问题
+        bool is_current_segment = user_metadata.segment_list_cur == hdr.srv6.segmentLeft; // 判断是否是当前sid
+        transition select(is_current_segment) {
+            true: mark_next_sid;
+            _: check_last_srv6;
+        }
+    }
+
+    // 标记下一个sid
+    state mark_next_sid {
+        user_metadata.next_srv6_sid = hdr.srv6_list.last.segmentId;
+        transition check_last_srv6;
+    }
+
+    // 判断是否遍历到segment list最后一个segment
+    state check_last_srv6 {
+        bool is_last_segment = user_metadata.segment_list_cur - 1 == hdr.srv6.lastEntry; // 作用和lastIndex一样，指向栈顶（最后一个元素）
         transition select(is_last_segment) {
             true: parse_srv6_next_hdr;
             _: parse_srv6_list;
@@ -226,14 +245,160 @@ control TopPipe(inout Parsed_packet hdr,
                 inout user_metadata_t user_metadata,
                 inout digest_data_t digest_data,
                 inout sume_metadata_t sume_metadata){
+
+    // TODO, 该部分后面会整合成一个action
+    // 发送给控制端, 发现未知的目的mac
+    action report_unknown_eth_dst() {
+        sume_metadata.send_dig_to_cpu = 1;
+        digest_data.unknown_eth_dst = 1;
+    }
+
+    // 发送给控制端, 发现未知的目的ip
+    action report_unknown_ip_dst() {
+        sume_metadata.send_dig_to_cpu = 1;
+        digest_data.unknown_ip_dst = 1;
+    }
+
+    // 丢弃该包
     action drop() {
         sume_metadata.dst_port = 0;
     }
 
+    // 设置数据包的物理出口
+    action set_out_port(port_t port) {
+        sume_metadata.dst_port = port;
+    }
 
+    // mac地址-端口映射表
+    table l2_forward_table {
+        key = {
+            hdr.ethernet.dstAddr: exact;
+        }
+        action = {
+            set_out_port;
+            NoAction;
+        }
+        size = 1024;
+        default_action = NoAction;
+    }
+
+    // 设置下一跳，替换源mac地址和目的mac地址，作用相当于ARP表和路由转发表
+    action set_next_hop(EthAddr_t dmac) {
+        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+        hdr.ethernet.dstAddr = dmac;
+        hdr.ipv6.hopLimit = hdr.ipv6.hopLimit - 1; // decrement TTL
+    }
+
+    // ipv6路由表
+    table ipv6_routing_table {
+        key = {
+            hdr.ipv6.dstAddr: exact;
+        }
+        actions = {
+            set_next_hop;
+            report_unknown_ip_dst;
+            NoAction;
+        }
+        size = 1024;
+        default_action = NoAction;
+    }
+
+    // 插入SRH，segment routing header
+    action insert_srv6_header(bit<8> num_segments) {
+        hdr.srv6.setValid();
+        hdr.srv6.nextHdr = hdr.ipv6.nextHdr;
+        hdr.srv6.hdrExtLen = num_segments;
+        hdr.srv6.routingType = 4;
+        hdr.srv6.segmentLeft = num_segments - 1;
+        hdr.srv6.lastEntry = num_segments - 1;
+        hdr.srv6.flags = 0;
+        hdr.srv6.tag = 0;
+        hdr.ipv6.nextHdr = PROTO_SRV6;
+    }
+
+    // 插入srv6 segment list
+    #include "actions_insert_srv6_list.p4"
+
+    // 用于入口节点处，used to inject SRv6 policy
+    table srv6_source_node_table {
+        key = {
+            hdr.ipv6.dstAddr: exact;
+        }
+        actions = {
+            insert_srv6_list_2;
+            insert_srv6_list_3;
+            insert_srv6_list_4;
+            insert_srv6_list_5;
+            insert_srv6_list_6;
+            NoAction;
+        }
+        size = 64;
+        default_action = NoAction;
+    }
+
+    // 用于出口节点，需要移除掉srv6头，也就是倒数第二跳，最后一跳就是目的地址
+    action pop_srv6() {
+        hdr.ipv6.nextHdr = hdr.srv6.nextHdr;
+        // srv6 header (SRH) outer is 8 bytes.
+        // srv6 segment list is 16 bytes each
+        bit<16> srv6_size = (((bit<16>)hdr.srv6.lastEntry + 1) << 4) + 8;
+        hdr.ipv6.payloadLen = hdr.ipv6.payloadLen - srv6_size;
+
+        hdr.srv6.setInvalid();
+        // Need to set MAX_HOPS headers invalid
+        hdr.srv6_list[0].setInvalid();
+        hdr.srv6_list[1].setInvalid();
+        hdr.srv6_list[2].setInvalid();
+        hdr.srv6_list[3].setInvalid();
+        hdr.srv6_list[4].setInvalid();
+        hdr.srv6_list[5].setInvalid();
+    }
+
+    // srv6 endpoint behavior(a participating waypoint in an SRv6 policy), need to modify the SRv6 header and perform a specified function
+    action end_action(){
+        // decrement segment left
+        hdr.srv6.segmentLeft = hdr.srv6.segmentLeft - 1;
+        // 修改目的地址
+        hdr.ipv6.dstAddr = user_metadata.next_srv6_sid;
+    }
+
+    // 用于判断当前节点是不是end node，如果是执行end_action
+    table srv6_end_node_table {
+        key = {
+            hdr.ipv6.dstAddr: exact;
+        }
+        actions = {
+            end_action;
+        }
+        size = 64;
+        default_action = end_action;
+    }
+
+    // 用于判断目的router/switch/host是否是支持srv6
+    table srv6_stations_table {
+        key = {
+            hdr.ethernet.dst_addr: exact;
+        }
+        actions = { NoAction; }
+        size = 64;
+        default_action = NoAction;
+    }
 
     apply{
-
+        // 如果是ipv6数据包，查看当前设备是否支持srv6
+        if(hdr.ipv6.isValid() && srv6_stations_table.apply().hit){
+            // TODO，这里只对source node, end node 讨论， tansit node 暂时先不考虑
+            if(srv6_end_node_table.apply().hit){
+                if(hdr.srv6.isValid() && hdr.srv6.segmentLeft == 0){
+                    pop_srv6();
+                }
+            }else{
+                srv6_source_node_table.apply();
+            }
+            ipv6_routing_table.apply();
+            if(hdr.ipv6.hopLimit == 0){drop();}
+        }
+        l2_forward_table.apply();
     }
 }
 

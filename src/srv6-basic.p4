@@ -239,18 +239,6 @@ control TopPipe(inout Parsed_packet hdr,
         hdr.srv6_list[1].segmentId = s1;
     }
 
-    action insert_srv6_list_3(IPv6Addr_t s1, IPv6Addr_t s2, IPv6Addr_t s3){
-        hdr.ipv6.dstAddr = s1; // 修改目的地址
-        hdr.ipv6.payloadLen = hdr.ipv6.payloadLen + 56; // 修正负载长度
-        insert_srv6_header(3);
-        hdr.srv6_list[0].setValid();
-        hdr.srv6_list[0].segmentId = s3;
-        hdr.srv6_list[1].setValid();
-        hdr.srv6_list[1].segmentId = s2;
-        hdr.srv6_list[2].setValid();
-        hdr.srv6_list[2].segmentId = s1;
-    }
-
     // 针对的是入口节点，
     table srv6_transit_table {
         key = {
