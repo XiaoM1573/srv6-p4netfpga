@@ -328,8 +328,6 @@ control TopPipe(inout Parsed_packet hdr,
             insert_srv6_list_2;
             insert_srv6_list_3;
             insert_srv6_list_4;
-            insert_srv6_list_5;
-            insert_srv6_list_6;
             NoAction;
         }
         size = 64;
