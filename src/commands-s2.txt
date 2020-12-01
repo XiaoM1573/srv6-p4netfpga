@@ -1,17 +1,20 @@
 // used in end node; test on switch s2
 
-// 发往s4的数据包，从nf1端口
-table_cam_add_entry l2_forward_table set_out_port 22:22:22:22:22:22 => 0b00000100
+// mac address - port mapping
+table_cam_add_entry l2_forward_table set_out_port 11:11:11:11:11:11 => 0b00000001
+table_cam_add_entry l2_forward_table set_out_port 44:44:44:44:44:44 => 0b00000100
+table_cam_add_entry l2_forward_table set_out_port 55:55:55:55:55:55 => 0b00010000
 
-// 支持srv6的设备
+// all switches that support srv6
+table_cam_add_entry srv6_stations_table NoAction 11:11:11:11:11:11 =>
 table_cam_add_entry srv6_stations_table NoAction 22:22:22:22:22:22 =>
 table_cam_add_entry srv6_stations_table NoAction 33:33:33:33:33:33 =>
 table_cam_add_entry srv6_stations_table NoAction 44:44:44:44:44:44 =>
 table_cam_add_entry srv6_stations_table NoAction 55:55:55:55:55:55 =>
 table_cam_add_entry srv6_stations_table NoAction 66:66:66:66:66:66 =>
 
-// 在source node上
-table_cam_add_entry srv6_source_node_table insert_srv6_list_4 0x20010001000000000000000000000002 => 0 0 0 0 0 0x00A10000000000000000000000000002 0x00A10000000000000000000000000004 0x00A10000000000000000000000000006 0x20010001000000000000000000000002
+// s2 作为end node , srv6_source_node_table中暂不添加表项
 
 // ipv6 “ARP”
-table_cam_add_entry ipv6_routing_table set_next_hop 0x00A10000000000000000000000000002 => 22:22:22:22:22:22
+table_cam_add_entry ipv6_routing_table set_next_hop 0x00A10000000000000000000000000004 => 44:44:44:44:44:44
+table_cam_add_entry ipv6_routing_table set_next_hop 0x00A10000000000000000000000000005 => 55:55:55:55:55:55

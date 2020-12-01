@@ -184,22 +184,22 @@ parser TopParser(packet_in packet,
 
     state parse_tcp {
         packet.extract(hdr.tcp);
-        transition: accept
+        transition accept;
     }
 
     state parse_udp {
         packet.extract(hdr.udp);
-        transition: accept;
+        transition accept;
     }
 
     state parse_icmp {
         packet.extract(hdr.icmp);
-        transition: accept;
+        transition accept;
     }
 
     state parse_icmpv6 {
         packet.extract(hdr.icmpv6);
-        transition: accept;
+        transition accept;
     }
 
     state parse_srv6 {
@@ -274,7 +274,7 @@ control TopPipe(inout Parsed_packet hdr,
         key = {
             hdr.ethernet.dstAddr: exact;
         }
-        action = {
+        actions = {
             set_out_port;
             NoAction;
         }
@@ -375,7 +375,7 @@ control TopPipe(inout Parsed_packet hdr,
     // 用于判断目的router/switch/host是否是支持srv6
     table srv6_stations_table {
         key = {
-            hdr.ethernet.dst_addr: exact;
+            hdr.ethernet.dstAddr: exact;
         }
         actions = { NoAction; }
         size = 64;

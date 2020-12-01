@@ -1,9 +1,10 @@
 // used in source node; test on switch s1
 
-// 到s2的数据包，从nf1端口
+// mac address - port mapping
 table_cam_add_entry l2_forward_table set_out_port 22:22:22:22:22:22 => 0b00000100
 
-// 支持srv6的设备
+// all switches that support srv6
+table_cam_add_entry srv6_stations_table NoAction 11:11:11:11:11:11 =>
 table_cam_add_entry srv6_stations_table NoAction 22:22:22:22:22:22 =>
 table_cam_add_entry srv6_stations_table NoAction 33:33:33:33:33:33 =>
 table_cam_add_entry srv6_stations_table NoAction 44:44:44:44:44:44 =>

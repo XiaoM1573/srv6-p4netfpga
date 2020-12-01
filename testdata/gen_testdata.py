@@ -35,6 +35,7 @@ from nf_sim_tools import *
 import random
 from collections import OrderedDict
 import sss_sdnet_tuples
+from pkt_util import *
 
 ###########
 # pkt generation tools
@@ -122,19 +123,19 @@ SID_s6 = "A1::6"
 IPv6_h1 = "2001:1::1"
 IPv6_h2 = "2001:1::2"
 
-ingress = 'nf0'
-egress = 'nf1'
+# 一个简单的udp包
+test_inner_frame = UDP(sport=12345, dport=12345)
+test_proto_code = 17
+# switch s1 test
+s1_ingress = 'nf0'
+s1_egress = 'nf1'
+s1_pkt_in = simple_ipv6ip_packet(eth_dst=MAC_s1, eth_src=MAC_h1, ipv6_src=IPv6_h1,
+                                 ipv6_dst=IPv6_h2, ipv6_nh=test_proto_code) / test_inner_frame
+applyPkt(s1_pkt_in, s1_ingress, 1)
+test_segment_list = [IPv6_h2, SID_s6, SID_s4, SID_s2]
 
-# 这是一个简单的ipv6包
-pkt1_in = simple_ipv6ip_packet(eth_src=MAC_h1, eth_dst=MAC_s1, ipv6_src=IPv6_h1, ipv6_dst=IPv6_h2)
-
-cnt = 0
-applyPkt(pkt1_in, ingress, cnt)
-
-# 测试在入口节点s1处插入SRH
-pkt1_out = simple_ipv6_sr_packet(eth_src=MAC_s1, eth_dst=MAC_s2, ipv6_dst=SID_s2, ipv6_src=IPv6_h1,
-                                 srh_seg_list=[IPv6_h2, SID_s6, SID_s2], srh_seg_left=2,
-                                 srh_first_seg=2)
-expPkt(pkt1_out, egress)
-
+s1_pkt_out = simple_ipv6_sr_packet(eth_dst=MAC_s2, eth_src=MAC_s1, ipv6_dst=SID_s2, ipv6_src=IPv6_h1,
+                                   srh_seg_list=test_segment_list, srh_seg_left=len(test_segment_list) - 1,
+                                   srh_first_seg=len(test_segment_list) - 1, srh_nh=test_proto_code) / test_inner_frame
+expPkt(s1_pkt_out, s1_egress)
 write_pcap_files()

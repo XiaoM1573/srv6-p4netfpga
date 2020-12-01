@@ -1,5 +1,5 @@
 # SRv6-P4NetFPGA
-## 1. Brief Introduction
+## 1. Introduction
 This is a project about SRv6 application, which can be 
 used to steer traffic flows by you want. The project worked 
 on the NetFPGA SUME platform. 
@@ -14,7 +14,7 @@ Hardware: NetFPGA SUME
 ## 3. Topology Test
 <img src="images/topo-srv6.png" style="zoom:50%;" />
 
-Segment Policy 1: h1 -> s1 -> s2 -> s4 -> s6 -> h2
+Segment Policy: h1 -> s1 -> s2 -> s4 -> s6 -> h2
 
 ### 3.1 Test P4 Program
 

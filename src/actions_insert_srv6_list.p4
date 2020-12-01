@@ -1,5 +1,5 @@
-#ifdef _ACTIONS_INSERT_SRV6_LIST_P4_
-#define _ACTIONS_INSERT_SRV6_LIST_P4_
+#ifndef ACTIONS_INSERT_SRV6_LIST_P4
+#define ACTIONS_INSERT_SRV6_LIST_P4
 
 action insert_srv6_list_2(IPv6Addr_t s1, IPv6Addr_t s2){
     hdr.ipv6.dstAddr = s1; // 修改目的地址
